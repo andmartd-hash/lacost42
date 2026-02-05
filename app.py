@@ -1,201 +1,156 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-from datetime import date
+from datetime import datetime
 
 # ==========================================
-# 1. CONFIGURACIÓN E INTERFAZ GENERAL
+# 1. CONFIGURACIÓN Y ESTILOS (Look & Feel)
 # ==========================================
-st.set_page_config(
-    page_title="Cotizador Modular - V2 LACOST",
-    page_icon="🏗️",
-    layout="wide"
-)
+st.set_page_config(layout="wide", page_title="Lacostw41 - v42")
 
-# Estilos CSS para ajustar tamaños y compactar la vista (Estilo Excel)
+# CSS para Scroll Horizontal y tarjetas de resultados (Metrics)
 st.markdown("""
-<style>
-    .stNumberInput, .stTextInput, .stSelectbox { padding-bottom: 5px; }
-    div[data-testid="column"] { background-color: #f8f9fa; border-radius: 8px; padding: 10px; }
-    .titulo-seccion { color: #0f52ba; font-weight: bold; margin-top: 15px; border-bottom: 2px solid #0f52ba; margin-bottom: 10px;}
-</style>
-""", unsafe_allow_html=True)
+    <style>
+    .scroll-container {
+        overflow-x: auto;
+        padding-bottom: 20px;
+        margin-bottom: 20px;
+    }
+    .stMetric {
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        border: 1px solid #eee;
+    }
+    /* Forzar que las columnas no se encojan menos de 150px dentro del scroll */
+    [data-testid="column"] {
+        min-width: 180px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. MÓDULO DE DATOS (LECTURA PARAMETERS)
+# 2. CARGA DE DATOS
 # ==========================================
 @st.cache_data
-def cargar_parametros(archivo):
-    """
-    Lee la hoja 'PARAMETERS' para llenar los dropdowns.
-    Busca variaciones del nombre por seguridad.
-    """
+def load_data():
+    return (
+        pd.read_csv('countries.csv'),
+        pd.read_csv('offering.csv'),
+        pd.read_csv('risk.csv'),
+        pd.read_csv('slc.csv'),
+        pd.read_csv('mcbr.csv'),
+        pd.read_csv('lband.csv'),
+        pd.read_csv('lplat.csv')
+    )
+
+df_c, df_o, df_r, df_s, df_mcbr, df_lband, df_lplat = load_data()
+
+# Limpieza de Exchange Rate (ER)
+paises_lista = df_c.columns[2:].tolist()
+def get_er(pais_sel):
     try:
-        xls = pd.ExcelFile(archivo)
-        # Busca hojas que contengan "PARAM" (ej: PARAMETERS, PARAMETROS)
-        nombre_hoja = next((s for s in xls.sheet_names if "PARAM" in s.upper()), None)
-        
-        if nombre_hoja:
-            return pd.read_excel(archivo, sheet_name=nombre_hoja)
-        return None
-    except Exception:
-        return None
-
-def obtener_mock_data():
-    """Datos de respaldo si no se sube el Excel"""
-    return pd.DataFrame({
-        'Material': ['Acero Reforzado', 'Concreto 3000 PSI', 'Mano de Obra Oficial', 'Transporte Volqueta'],
-        'Costo_Unitario': [5200, 450000, 28500, 180000]
-    })
+        val = df_c.loc[1, pais_sel]
+        return float(str(val).replace(',', '').strip())
+    except: return 1.0
 
 # ==========================================
-# 3. MÓDULO DE LÓGICA (OPERACIONES DE INPUT)
+# 3. BARRA LATERAL (Configuración)
 # ==========================================
-class CalculadoraInput:
-    """
-    Replica las fórmulas matemáticas de las celdas de la hoja INPUT.
-    """
-    @staticmethod
-    def calcular_linea(cantidad, costo_unitario, desperdicio_pct):
-        # Fórmula: (Cant * Costo) * (1 + %Desp)
-        subtotal = cantidad * costo_unitario
-        valor_desperdicio = subtotal * (desperdicio_pct / 100)
-        total_linea = subtotal + valor_desperdicio
-        return total_linea
-
-    @staticmethod
-    def calcular_totales_proyecto(df_items, pct_admin, pct_impr):
-        if df_items.empty:
-            return 0, 0, 0, 0
-            
-        costo_directo = df_items['Total'].sum()
-        val_admin = costo_directo * (pct_admin / 100)
-        val_impr = costo_directo * (pct_impr / 100)
-        gran_total = costo_directo + val_admin + val_impr
-        
-        return costo_directo, val_admin, val_impr, gran_total
-
-# ==========================================
-# 4. MÓDULO DE INTERFAZ (UI PRINCIPAL)
-# ==========================================
-def main():
-    st.title("📑 Cotizador Web Modular (V2 LACOST)")
+with st.sidebar:
+    st.title("Madre Assistant")
+    st.subheader("Configuración General")
+    id_cot = st.text_input("ID Cotización", "COT-042")
+    pais = st.selectbox("País", paises_lista)
+    moneda = st.radio("Moneda de Visualización", ["USD", "Local"])
     
-    # --- BARRA LATERAL: CARGA DE ARCHIVO ---
-    st.sidebar.header("📂 Configuración")
-    archivo_usuario = st.sidebar.file_uploader("Cargar Excel (V2LACOST...)", type=["xlsm", "xlsx"])
+    er_actual = get_er(pais)
+    if pais == "Ecuador": er_actual = 1.0
     
-    # Lógica de carga de datos
-    if archivo_usuario:
-        df_params = cargar_parametros(archivo_usuario)
-        if df_params is not None:
-            st.sidebar.success("✅ Parámetros cargados")
-        else:
-            st.sidebar.warning("⚠️ Hoja PARAMETERS no encontrada, usando demo.")
-            df_params = obtener_mock_data()
-    else:
-        df_params = obtener_mock_data()
-
-    # --- SECCIÓN 1: ENCABEZADO (HEADER) ---
-    st.markdown("<div class='titulo-seccion'>1. Datos Generales del Proyecto</div>", unsafe_allow_html=True)
+    risk_sel = st.selectbox("QA Risk", df_r['Risk'])
+    cont_val = float(df_r[df_r['Risk'] == risk_sel]['Contingency'].values[0].strip('%')) / 100
     
-    # Ajuste de TAMAÑOS DE COLUMNA: [3, 1, 1] (Nombre ancho, fechas angostas)
-    c1, c2, c3 = st.columns([3, 1, 1])
-    with c1:
-        cliente = st.text_input("Cliente / Proyecto", "IBM Infraestructura")
-    with c2:
-        fecha_cot = st.date_input("Fecha", date.today())
-    with c3:
-        trm = st.number_input("TRM Base ($)", value=4100)
+    st.write(f"**ER:** {er_actual} | **Contingencia:** {cont_val*100}%")
 
-    # --- SECCIÓN 2: INPUT Y TABLA (BODY) ---
-    st.markdown("<div class='titulo-seccion'>2. Detalle de Costos (Input Sheet)</div>", unsafe_allow_html=True)
+# ==========================================
+# 4. CUERPO PRINCIPAL (Derecha)
+# ==========================================
+tab1, tab2 = st.tabs(["🛠 TAB 1: Servicios", "📊 TAB 2: Labor"])
 
-    # Estado de la sesión para guardar las filas agregadas
-    if 'filas_cotizacion' not in st.session_state:
-        st.session_state.filas_cotizacion = []
+with tab1:
+    st.subheader("Entrada de Datos de Servicio")
+    
+    # Contenedor con Scroll Horizontal
+    st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+    c = st.columns(7) # 7 columnas para que se active el scroll
+    
+    with c[0]:
+        off_sel = st.selectbox("Offering", df_o['Offering'])
+        l40 = df_o[df_o['Offering'] == off_sel]['L40'].values[0]
+        st.caption(f"L40: {l40}")
+    with c[1]:
+        qty = st.number_input("QTY", min_value=1, value=1)
+    with c[2]:
+        slc_opts = df_s[df_s['Scope'] == 'only Brazil']['SLC'] if pais == "Brazil" else df_s[df_s['Scope'].isna()]['SLC']
+        slc_sel = st.selectbox("SLC", slc_opts)
+    with c[3]:
+        s_start = st.date_input("Service Start", datetime.now())
+    with c[4]:
+        s_end = st.date_input("Service End", datetime.now())
+    with c[5]:
+        u_usd = st.number_input("Unit USD", min_value=0.0)
+    with c[6]:
+        u_loc = st.number_input("Unit Local", min_value=0.0)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # FORMULARIO DE INGRESO (Reemplaza botón 'Add Line')
-    with st.container():
-        st.caption("Agregar nueva línea:")
-        # Ajuste de TAMAÑOS DE COLUMNA: [2, 1, 1, 1, 0.5] -> Material doble ancho
-        fc1, fc2, fc3, fc4, fc5 = st.columns([2, 1, 1, 1, 0.5])
-        
-        with fc1:
-            # Dropdown inteligente basado en PARAMETERS
-            lista_mat = df_params['Material'].unique().tolist() if 'Material' in df_params.columns else ["Genérico"]
-            material_sel = st.selectbox("Descripción / Item", lista_mat, key="sel_mat")
-        
-        with fc2:
-            # Auto-llenado de precio si existe en params
-            precio_sugerido = 0.0
-            if 'Costo_Unitario' in df_params.columns:
-                try:
-                    precio_sugerido = float(df_params.loc[df_params['Material'] == material_sel, 'Costo_Unitario'].values[0])
-                except: pass
-            costo_u = st.number_input("Costo Unit.", value=precio_sugerido, format="%.2f")
-            
-        with fc3:
-            cant = st.number_input("Cantidad", value=1.0, min_value=0.1)
-        with fc4:
-            desp = st.number_input("% Desperdicio", value=5.0)
-        with fc5:
-            st.write("") # Espacio vertical
-            st.write("")
-            agregar = st.button("➕", help="Agregar línea")
+    # Lógica Matemática
+    dur = max((s_end.year - s_start.year) * 12 + (s_end.month - s_start.month), 1)
+    uplf = df_s[df_s['SLC'] == slc_sel]['UPLF'].values[0]
+    
+    cost_base_usd = u_usd + (u_loc / er_actual if er_actual != 0 else 0)
+    total_serv_usd = (cost_base_usd * dur) * qty * uplf
+    
+    res_serv = total_serv_usd * er_actual if moneda == "Local" else total_serv_usd
+    st.metric(f"Total Service ({moneda})", f"{res_serv:,.2f}")
 
-        if agregar:
-            total_fila = CalculadoraInput.calcular_linea(cant, costo_u, desp)
-            st.session_state.filas_cotizacion.append({
-                "Descripción": material_sel,
-                "Costo Unit": costo_u,
-                "Cantidad": cant,
-                "% Desp": desp,
-                "Total": total_fila
-            })
-            st.rerun()
+with tab2:
+    st.subheader("Cálculos de Labor")
+    
+    st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+    cl = st.columns(5)
+    
+    with cl[0]:
+        t_mcbr = st.selectbox("MachCat/BandRate", df_mcbr['MCBR'])
+        df_ref = df_lplat if "Machine" in t_mcbr else df_lband
+        col_ref = 'Plat' if "Machine" in t_mcbr else 'Def'
+    with cl[1]:
+        mcrr_sel = st.selectbox("MC/RR", df_ref[col_ref].unique())
+    with cl[2]:
+        horas = st.number_input("Horas", min_value=1, value=1)
+    with cl[3]:
+        m_start = st.date_input("Manage Start", s_start)
+    with cl[4]:
+        m_end = st.date_input("Manage End", s_end)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # TABLA DE DATOS (Data Editor)
-    if len(st.session_state.filas_cotizacion) > 0:
-        df_display = pd.DataFrame(st.session_state.filas_cotizacion)
-        
-        # Tabla editable (permite borrar filas seleccionando y pulsando Supr)
-        st.data_editor(
-            df_display,
-            use_container_width=True,
-            num_rows="dynamic",
-            column_config={
-                "Costo Unit": st.column_config.NumberColumn(format="$%.2f"),
-                "Total": st.column_config.NumberColumn(format="$%.2f")
-            },
-            key="editor_tabla" 
-        )
+    # Búsqueda de Costo con Limpieza
+    try:
+        raw_val = df_ref[df_ref[col_ref] == mcrr_sel][pais].values[0]
+        m_cost = float(str(raw_val).replace(',', '').replace('"', '').strip()) if not pd.isna(raw_val) else 0.0
+    except: m_cost = 0.0
 
-        # --- SECCIÓN 3: TOTALES (FOOTER) ---
-        st.markdown("<div class='titulo-seccion'>3. Resumen Financiero</div>", unsafe_allow_html=True)
-        
-        # Ajuste de TAMAÑOS: [1.5, 1.5, 3] -> Sliders a la izq, Métricas grandes a la der
-        foot1, foot2, foot3 = st.columns([1.5, 1.5, 3])
-        
-        with foot1:
-            p_admin = st.slider("% Administración", 0, 30, 10)
-        with foot2:
-            p_impr = st.slider("% Imprevistos", 0, 20, 5)
-            
-        # Cálculo final modular
-        cd, v_adm, v_imp, total_proy = CalculadoraInput.calcular_totales_proyecto(
-            pd.DataFrame(st.session_state.filas_cotizacion), 
-            p_admin, p_impr
-        )
-        
-        with foot3:
-            c_a, c_b = st.columns(2)
-            c_a.metric("Costo Directo", f"${cd:,.0f}")
-            c_a.metric("AIU (Adm+Imp)", f"${(v_adm + v_imp):,.0f}")
-            c_b.metric("TOTAL PROYECTO", f"${total_proy:,.0f}", delta="Precio Final")
+    dur_m = max((m_end.year - m_start.year) * 12 + (m_end.month - m_start.month), 1)
+    total_lab_base = (m_cost * horas * dur_m)
+    
+    # Ajuste moneda Labor
+    res_lab = total_lab_base if moneda == "Local" else (total_lab_base / er_actual if er_actual != 0 else total_lab_base)
+    
+    st.metric(f"Total Labor ({moneda})", f"{res_lab:,.2f}")
 
-    else:
-        st.info("👆 Usa el formulario de arriba para agregar ítems a la cotización.")
-
-if __name__ == "__main__":
-    main()
+# ==========================================
+# 5. TOTAL GLOBAL
+# ==========================================
+st.markdown("---")
+gran_total = res_serv + res_lab
+st.header(f"Total Cotización Lacostw41: {gran_total:,.2f} {moneda}")
