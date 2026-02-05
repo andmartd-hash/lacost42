@@ -58,7 +58,7 @@ def get_er(pais_sel):
 # 3. BARRA LATERAL (Configuración)
 # ==========================================
 with st.sidebar:
-    st.title("Madre Assistant")
+    st.title("Informacion Base")
     st.subheader("Configuración General")
     id_cot = st.text_input("ID Cotización", "COT-042")
     pais = st.selectbox("País", paises_lista)
